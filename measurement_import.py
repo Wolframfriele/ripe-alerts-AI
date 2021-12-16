@@ -102,50 +102,64 @@ class TracerouteImport(object):
                                               on_error=TracerouteResult.ACTION_IGNORE)
         hops = []
         for hop_object in measurement_result.hops:
-            # hop_number = hop_object.raw_data['hop']
+            hop_number = hop_object.raw_data['hop']
             hop_pings = hop_object.raw_data['result']
             hop_ip = None
             # hop_as = None
             min_hop_rtt = float('inf')
+            mean_hop_rtt = 0
             for ping in hop_pings:
-                if 'from' in ping:
-                    if hop_ip is None:
+                if 'rtt' in ping:
+                    mean_hop_rtt += ping['rtt']
+                    if hop_ip == None:
                         hop_ip = ping['from']
                         # r = requests.get(f"https://stat.ripe.net/data/network-info/data.json?resource={hop_ip}").json()['data']['asns']
                         # if len(r) > 0:
                         #     hop_as = r[0]
                     if ping['rtt'] < min_hop_rtt:
                         min_hop_rtt = ping['rtt']
-            hops.append({
-                'from': hop_ip,
-                'min_rtt': min_hop_rtt,
-                # 'as_nummer': hop_as
-            })
-        
-        pre_entry_hop_rtt = None
+            
+            if hop_ip is not None:
+                hops.append({
+                    'hop': hop_number,
+                    'from': hop_ip,
+                    'min_rtt': min_hop_rtt,
+                    'mean_rtt': round(mean_hop_rtt / 3, 2)
+                    # 'as_nummer': hop_as
+                })
+            
+        pre_entry_hop_min_rtt = None
+        pre_entry_hop_mean_rtt = None
         pre_entry_hop_ip = None
 
         # Make a variable that has the last ip adres
-
-        for hop in hops:
-            pass
+        as_ip = measurement_result.destination_address
+        for hop in hops[::-1]:
             # Check if ip in as number, use the first one thats different as
+            if not self.ip_in_as(hop['from'], as_ip):
+                pre_entry_hop_ip = hop['from']
+                pre_entry_hop_min_rtt = hop['min_rtt']
+                pre_entry_hop_mean_rtt = hop['mean_rtt']
+                break
 
         clean_result = {
             'probe_id': measurement_result.probe_id,
             'created': measurement_result.created,
             'total_hops': measurement_result.total_hops,
             'last_rtt_average': measurement_result.last_median_rtt,
-            'pre_entry_hop_rtt': test,
-            'pre_entry_hop_ip': temp
+            'pre_entry_hop_min_rtt': pre_entry_hop_min_rtt,
+            'pre_entry_hop_mean_rtt': pre_entry_hop_mean_rtt,
+            'pre_entry_hop_ip': pre_entry_hop_ip
             # 'hops': hops
         }
         return clean_result
 
-    def ip_in_as(self, ip, prefixes):
-        if ip[:7] == prefixes[:7]:
+    def ip_in_as(self, ip, start_ip):
+        if ip[:7] == start_ip[:7]:
             return True
+        else:
+            return False
 
-traceroute_import = TracerouteImport()
-df_traceroute = traceroute_import.convert_dataset('measurement_data/small_traceroute_2.json')
-# print(df_traceroute)
+# traceroute_import = TracerouteImport()
+# df_traceroute = traceroute_import.convert_dataset('measurement_data/small_traceroute_2.json')
+# # print(df_traceroute)
