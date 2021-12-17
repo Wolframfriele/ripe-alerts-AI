@@ -39,13 +39,16 @@ class PingImport(object):
 
     def pre_process(self, single_result_raw):
         measurement_result = PingResult(single_result_raw)
+        if measurement_result.packets_received == 0:
+            packet_loss = 100
+        else:
+            packet_loss = round(((measurement_result.packets_sent - measurement_result.packets_received) / measurement_result.packets_sent) * 100, 2)
         clean_result = {
             'probe_id': measurement_result.probe_id,
             'created': measurement_result.created,
             'rtt_min': measurement_result.rtt_min,
             'rtt_average': measurement_result.rtt_average,
-            'packets_sent': measurement_result.packets_sent,
-            'packets_received': measurement_result.packets_received
+            'packets_loss': packet_loss
         }
         return clean_result
 
@@ -159,7 +162,3 @@ class TracerouteImport(object):
             return True
         else:
             return False
-
-# traceroute_import = TracerouteImport()
-# df_traceroute = traceroute_import.convert_dataset('measurement_data/small_traceroute_2.json')
-# # print(df_traceroute)
