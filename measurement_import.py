@@ -3,6 +3,7 @@ import datetime
 import requests
 import ijson
 import pandas as pd
+import numpy as np
 from ripe.atlas.sagan import PingResult, TracerouteResult
 
 class PingImport(object):
@@ -53,6 +54,9 @@ class PingImport(object):
         return clean_result
 
     def read_dataset(self, dataset_path):
+        """
+        Check if a feather of json data already exist; if it exist import feather, if doesnt exits: Convert json to dataframe and save a feather.
+        """
         store_location = dataset_path[:-4] + 'feather'
         if exists(store_location):
             return pd.read_feather(store_location)
@@ -61,6 +65,9 @@ class PingImport(object):
             return pd.read_feather(store_location)
 
 class TracerouteImport(object):
+    known_ip = {}
+    own_as = None
+
     def download_dataset(self, measurement_id):
         """creates initial dataset"""
         print(f"collecting initial dataset for measurement: {measurement_id}")
@@ -106,59 +113,80 @@ class TracerouteImport(object):
         hops = []
         for hop_object in measurement_result.hops:
             hop_number = hop_object.raw_data['hop']
-            hop_pings = hop_object.raw_data['result']
-            hop_ip = None
-            # hop_as = None
-            min_hop_rtt = float('inf')
-            mean_hop_rtt = 0
-            for ping in hop_pings:
-                if 'rtt' in ping:
-                    mean_hop_rtt += ping['rtt']
-                    if hop_ip == None:
-                        hop_ip = ping['from']
-                        # r = requests.get(f"https://stat.ripe.net/data/network-info/data.json?resource={hop_ip}").json()['data']['asns']
-                        # if len(r) > 0:
-                        #     hop_as = r[0]
-                    if ping['rtt'] < min_hop_rtt:
-                        min_hop_rtt = ping['rtt']
-            
-            if hop_ip is not None:
+            if 'error' in hop_object.raw_data:
+                hops.append({
+                    'hop': None,
+                    'from': None,
+                    'min_rtt': None,
+                })
+            else:
+                try:
+                    hop_pings = hop_object.raw_data['result']
+                except KeyError:
+                    print(hop_object.raw_data)
+
+                hop_ip = None
+                min_hop_rtt = float('inf')
+                for ping in hop_pings:
+                    if 'rtt' in ping:
+                        if hop_ip == None:
+                            hop_ip = ping['from']
+                        if ping['rtt'] < min_hop_rtt:
+                            min_hop_rtt = ping['rtt']
+
+                min_hop_rtt = float(min_hop_rtt)
                 hops.append({
                     'hop': hop_number,
                     'from': hop_ip,
                     'min_rtt': min_hop_rtt,
-                    'mean_rtt': round(mean_hop_rtt / 3, 2)
-                    # 'as_nummer': hop_as
                 })
-            
-        pre_entry_hop_min_rtt = None
-        pre_entry_hop_mean_rtt = None
-        pre_entry_hop_ip = None
+
+        pre_entry_hop_min_rtt, pre_entry_hop_ip, pre_entry_as = np.nan, np.nan, np.nan
 
         # Make a variable that has the last ip adres
         as_ip = measurement_result.destination_address
-        for hop in hops[::-1]:
-            # Check if ip in as number, use the first one thats different as
-            if not self.ip_in_as(hop['from'], as_ip):
-                pre_entry_hop_ip = hop['from']
-                pre_entry_hop_min_rtt = hop['min_rtt']
-                pre_entry_hop_mean_rtt = hop['mean_rtt']
-                break
 
+        hops.reverse()
+        for idx, hop in enumerate(hops):
+            # Check if ip in as number, use the first one thats different AS
+            if not self.ip_in_as(hop['from'], as_ip):
+                # print('Hop not in AS')
+                pre_entry_hop_ip = hop['from']
+                pre_entry_hop_min_rtt = hops[idx - 1]['min_rtt']
+                if idx - 1 == -1:
+                    pre_entry_hop_min_rtt = float('inf')
+                pre_entry_as = self.get_as(pre_entry_hop_ip)
+                break
+    
         clean_result = {
             'probe_id': measurement_result.probe_id,
             'created': measurement_result.created,
             'total_hops': measurement_result.total_hops,
-            'last_rtt_average': measurement_result.last_median_rtt,
             'pre_entry_hop_min_rtt': pre_entry_hop_min_rtt,
-            'pre_entry_hop_mean_rtt': pre_entry_hop_mean_rtt,
-            'pre_entry_hop_ip': pre_entry_hop_ip
-            # 'hops': hops
+            'pre_entry_hop_ip': pre_entry_hop_ip,
+            'pre_entry_as': pre_entry_as
         }
+
         return clean_result
 
-    def ip_in_as(self, ip, start_ip):
-        if ip[:7] == start_ip[:7]:
-            return True
-        else:
-            return False
+    def get_as(self, ip):
+        as_num = None
+        if ip is not None:
+            if ip in self.known_ip:
+                as_num = self.known_ip[ip]
+            else:
+                r = requests.get(f"https://stat.ripe.net/data/network-info/data.json?resource={ip}").json()['data']['asns']
+                if len(r) > 0:
+                    as_num = r[0]
+                else:
+                    as_num = np.nan
+                self.known_ip[ip] = as_num
+        return as_num
+
+    def ip_in_as(self, ip, goal_ip):
+        in_as = False
+        if self.own_as is None:
+            self.own_as = self.get_as(goal_ip)
+        if self.get_as(ip) == self.own_as:
+            in_as = True
+        return in_as
