@@ -22,7 +22,8 @@ class EntryASMonitor:
         """creates initial dataset"""
         print(f"collecting initial dataset for measurement: {measurement_id}")
         results_list = []
-        yesterday = int(datetime.now().timestamp()) - 24 * 60 * 60
+        yesterday = int(datetime.now().timestamp()) - (24 * 60 * 60)
+        print(yesterday)
         f = urlopen(
                     f"https://atlas.ripe.net/api/v2/measurements/{measurement_id}/results?start={yesterday}")
         parser = ijson.items(f, 'item')
@@ -31,6 +32,7 @@ class EntryASMonitor:
             result = self.preprocess(measurement_data)
             results_list.append(result)
         df_traceroute: pd.DataFrame = pd.DataFrame(results_list)
+        print(f'{len(df_traceroute)} measurment points in dataset')
         return df_traceroute
 
     def convert_dataset(self, dataset_path, store=False):
@@ -241,7 +243,6 @@ class EntryASMonitor:
         changes_in_rtt = []
         for probe_id in unique_probes:
             single_probe = single_as_df[single_as_df["probe_id"] == probe_id]
-            # print(single_probe)
             if len(single_probe) > len(as_anomalies_aggregated) and single_probe['level_shift'][idx] == True:
                 mean_probe_rtt = single_probe['entry_rtt'][:idx - 1].median()
                 current_probe_rtt = single_probe['entry_rtt'][idx]

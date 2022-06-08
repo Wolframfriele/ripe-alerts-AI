@@ -94,15 +94,17 @@ class ProbesPerAS:
 
 
 class AggregatedAnomalies:
-    def __init__(self, df, aggregated) -> None:
+    def __init__(self, df, aggregated, anomalies_list_df) -> None:
         self.df = df
         self.aggregated = aggregated
+        self.anomalies_list_df = anomalies_list_df
 
     def plot(self, random_state=42, as_number=None) -> None:
         if not as_number:
-            as_number = self.df["entry_as"].sample(n=1, random_state=random_state).unique()[0]
+            as_number = self.anomalies_list_df["as-number"].sample(n=1, random_state=random_state).unique()[0]
         sns.set(rc={"figure.figsize": (24, 10)})
         sns.set_style("white")
+        sns.lineplot(data=self.aggregated[str(as_number)], palette="light:black")
         sns.lineplot(data=self.aggregated[str(as_number)], palette="light:black")
         plt.title(f'Aggregated Anomalies in AS{as_number}', fontsize =20)
         plt.xlabel('Datetime', fontsize = 15)
